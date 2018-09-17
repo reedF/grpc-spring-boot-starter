@@ -1,0 +1,93 @@
+#envoy代理rest自动转换grpc配置方式
+admin:
+  access_log_path: /tmp/admin_access.log
+  address:
+    #管理界面端口
+    socket_address: { address: 0.0.0.0,port_value: 10000 }
+
+static_resources:  
+  listeners:
+  - address:
+      socket_address:
+        address: 0.0.0.0
+        #对外暴露的端口
+        port_value: 80
+    filter_chains:
+    - filters:
+      - name: envoy.http_connection_manager
+        config:
+          codec_type: auto
+          add_user_agent: true
+          #stat_prefix: ingress_http
+          stat_prefix: egress_http
+          use_remote_address: true
+          access_log: 
+          - name: envoy.file_access_log
+            config:
+              path: "/tmp/access.log"
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: service
+              domains:
+              - "*"
+              routes:
+              - match:
+                  prefix: "/nginx/"
+                route:
+                  cluster: nginx  
+                  prefix_rewrite: "/"            
+              - match:
+                  prefix: "/"
+                  #配置需匹配的header
+                  #headers:
+                  #- name: content-type
+                  #  exact_match: application/grpc
+                route:
+                  cluster: service1
+                  prefix_rewrite: "/"
+          #路由过滤器，不配无法路由                         
+          http_filters:
+          #- name: envoy.grpc_http1_bridge 
+          #rest转grpc过滤器envoy.grpc_json_transcoder
+          #https://www.envoyproxy.cn/v2APIreference/Filters/HTTPfilters/gRPCJSONtranscoder.html
+          #https://www.envoyproxy.io/docs/envoy/latest/api-v2/config/filter/http/transcoder/v2/transcoder.proto
+          - name: envoy.grpc_json_transcoder
+            config:
+              #protoc生成的描述符文件.pb
+              proto_descriptor: "/etc/envoy/grpc-lib.pb"
+              #proto内定义的service名(注意：加包名)
+              services: ["helloworld.Simple"]
+              #match_incoming_request_route: true
+              print_options:
+                add_whitespace: true
+                always_print_primitive_fields: true
+                always_print_enums_as_ints: false
+                preserve_proto_field_names: false
+          - name: envoy.router 
+           
+  clusters:
+  - name: nginx
+    connect_timeout: 0.25s
+    type: STATIC
+    #type: strict_dns
+    lb_policy: round_robin
+    #非特殊需要不要定义，否则无法路由
+    #http2_protocol_options: {}
+    hosts:
+    - socket_address:
+        address: 192.168.13.204
+        port_value: 80
+  #代理grpc服务        
+  - name: service1
+    connect_timeout: 0.25s
+    type: STATIC
+    #type: strict_dns
+    lb_policy: round_robin
+    #support http2 for grpc
+    http2_protocol_options: {}
+    hosts:
+    - socket_address:
+        address: 192.168.13.204
+        port_value: 9998
+        
