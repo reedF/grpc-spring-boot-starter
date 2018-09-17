@@ -10,6 +10,6 @@ grpc:
       host:
         - 127.0.0.1
       port:
-        - 9898
+        - 9998
       enableKeepAlive: true
       keepAliveWithoutCalls: true
